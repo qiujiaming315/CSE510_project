@@ -1,0 +1,6 @@
+# Ignored Folders
+/.idea/
+/input/*/
+/results/
+
+# Ignored Files

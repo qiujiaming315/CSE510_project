@@ -40,7 +40,7 @@ class NetworkEnv:
         return reward
 
     def step(self, action):
-        state = []
+        states = [[] for _ in range(self.num_flow)]
         self.time += self.interval
         scheduler_arrival = []
         # Forward the packets into the network and compute the time they reach the destination.
@@ -49,13 +49,15 @@ class NetworkEnv:
             while len(flow_arrival) > 0 and flow_arrival[0] < self.time:
                 new_arrival.append(flow_arrival.pop(0))
             _, token, departure = self.token_buckets[flow_idx].forward(new_arrival, 1)
-            state.append(token)
+            states[flow_idx].append(token)
             backlog1, _, departure = self.reprofilers[flow_idx][0].forward(departure, a)
             backlog2, _, departure = self.reprofilers[flow_idx][1].forward(departure, a)
-            state.append(backlog1 + backlog2)
+            states[flow_idx].append(backlog1 + backlog2)
             scheduler_arrival.append(departure)
         backlog, departure = self.scheduler.forward(scheduler_arrival)
-        state.append(backlog)
+        # Append the scheduler backlog to the state of each flow.
+        for state in states:
+            state.append(backlog)
         # Compute the end-to-end latency experienced by each packet.
         # Compute the reward and determine whether the episode terminates.
         terminate, exceed_target = True, False
@@ -75,7 +77,7 @@ class NetworkEnv:
             reward += flow_reward
         if exceed_target:
             reward = self.penalty
-        return state, reward, terminate, exceed_target
+        return states, reward, terminate, exceed_target
 
     def reset(self):
         for token_bucket, reprofiler in zip(self.token_buckets, self.reprofilers):
@@ -85,12 +87,12 @@ class NetworkEnv:
         self.time = 0
         self.packet_count = [0] * len(self.arrival_pattern)
         self.departure_time = [[] for _ in range(len(self.arrival_pattern))]
-        state = []
-        for f in self.flow_profile:
+        states = []
+        for state, f in zip(states, self.flow_profile):
             state.append(f[1] + 1)
             state.append(0)
-        state.append(0)
-        return state
+            state.append(0)
+        return states
 
 
 class TokenBucket:

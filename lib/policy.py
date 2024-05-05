@@ -5,7 +5,6 @@ implementations and some unimplemented classes that should be useful
 in your code.
 """
 import numpy as np
-import attr
 
 
 class Policy:
@@ -49,8 +48,10 @@ class UniformRandomPolicy(Policy):
       If num_actions <= 0
     """
 
-    def __init__(self, num_actions):
+    def __init__(self, num_flows, num_actions):
+        assert num_flows >= 1
         assert num_actions >= 1
+        self.num_flows = num_flows
         self.num_actions = num_actions
 
     def select_action(self, **kwargs):
@@ -63,10 +64,10 @@ class UniformRandomPolicy(Policy):
         int:
           Action index in range [0, num_actions)
         """
-        return np.random.randint(0, self.num_actions)
+        return np.random.randint(0, self.num_actions, size=self.num_flows)
 
     def get_config(self):  # noqa: D102
-        return {'num_actions': self.num_actions}
+        return {'num_flows': self.num_flows, 'num_actions': self.num_actions}
 
 
 class GreedyPolicy(Policy):
@@ -76,7 +77,7 @@ class GreedyPolicy(Policy):
     """
 
     def select_action(self, q_values, **kwargs):  # noqa: D102
-        return np.argmax(q_values)
+        return np.argmax(q_values, axis=1)
 
 
 class GreedyEpsilonPolicy(Policy):
@@ -111,9 +112,9 @@ class GreedyEpsilonPolicy(Policy):
           The action index chosen.
         """
         if np.random.rand() < self.epsilon:
-            return np.random.randint(0, len(q_values))
+            return np.random.randint(0, q_values.shape[1], size=q_values.shape[0])
         else:
-            return np.argmax(q_values)
+            return np.argmax(q_values, axis=1)
 
 
 class LinearDecayGreedyEpsilonPolicy(Policy):
@@ -155,9 +156,9 @@ class LinearDecayGreedyEpsilonPolicy(Policy):
           Selected action.
         """
         if np.random.rand() < self.epsilon:
-            action = np.random.randint(0, len(q_values))
+            action = np.random.randint(0, q_values.shape[1], size=q_values.shape[0])
         else:
-            action = np.argmax(q_values)
+            action = np.argmax(q_values, axis=1)
         if is_training:
             self.epsilon -= (self.start_value - self.end_value) / self.num_steps
             self.epsilon = max(self.epsilon, self.end_value)

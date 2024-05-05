@@ -200,7 +200,7 @@ class ReplayMemory:
       Reset the memory. Deletes all references to the samples.
     """
 
-    def __init__(self, max_size, window_length):
+    def __init__(self, max_size):
         """Setup memory.
 
         You should specify the maximum size o the memory. Once the
@@ -212,7 +212,6 @@ class ReplayMemory:
         index where the next sample should be inserted in the list.
         """
         self.max_size = max_size
-        self.window_length = window_length
         self.state_buffer = [None] * max_size
         self.action_buffer = [None] * max_size
         self.reward_buffer = [None] * max_size
@@ -226,7 +225,7 @@ class ReplayMemory:
     def append(self, state, action, reward):
         raise NotImplementedError('This method should be overridden')
 
-    def end_episode(self, final_state, is_terminal):
+    def end_episode(self, final_state):
         raise NotImplementedError('This method should be overridden')
 
     def sample(self, batch_size, indexes=None):

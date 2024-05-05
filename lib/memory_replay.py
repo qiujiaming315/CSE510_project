@@ -1,14 +1,13 @@
 import numpy as np
 
-from deeprl_hw2.core import Sample, ReplayMemory
+from lib.core import Sample, ReplayMemory
 
 
-class AtariReplayMemory(ReplayMemory):
+class NetworkReplayMemory(ReplayMemory):
     """An implementation of memory replay using a ring buffer."""
 
-    def __init__(self, max_size, window_length, input_shape):
-        super().__init__(max_size, window_length)
-        self.input_shape = input_shape
+    def __init__(self, max_size):
+        super().__init__(max_size)
         self.index = 0
         self.full = False
         self.final_state = dict()
@@ -23,28 +22,12 @@ class AtariReplayMemory(ReplayMemory):
         return index % self.max_size
 
     def get_state(self, index):
-        # Get the frames for a fixed window size.
-        state = []
-        for i in range(self.window_length):
-            frame = self.state_buffer[self.set_index(index - i)]
-            # Check if the sample spans uninitialized region.
-            if frame is None:
-                frame = np.zeros(self.input_shape, dtype=np.uint8)
-            state.append(frame)
-        state.reverse()
-        state = np.array(state)
-        # If the next state is the final state, retrieve the next frame from the final states.
-        next_frame = self.final_state.get(index, None)
-        is_terminal = next_frame is not None
-        if next_frame is None:
-            next_frame = self.state_buffer[self.set_index(index + 1)]
-        # Set frame to zero if any of the previous state is the final state.
-        for i in range(1, self.window_length):
-            if self.set_index(index - i) in self.final_state.keys():
-                state[0:self.window_length - i] = 0
-                break
-        # Stack the next frame onto the current state.
-        next_state = np.concatenate((state[1:], next_frame[np.newaxis, :, :]), axis=0)
+        state = self.state_buffer[self.set_index(index)]
+        # Check if the next state is the final state.
+        next_state = self.final_state.get(index, None)
+        is_terminal = next_state is not None
+        if not is_terminal:
+            next_state = self.state_buffer[self.set_index(index + 1)]
         return state, next_state, is_terminal
 
     def append(self, state, action, reward):
@@ -61,7 +44,7 @@ class AtariReplayMemory(ReplayMemory):
             self.full = True
         return
 
-    def end_episode(self, final_state, is_terminal):
+    def end_episode(self, final_state):
         self.final_state[self.set_index(self.index - 1)] = final_state
         return
 

@@ -3,9 +3,9 @@ import copy
 import torch
 import numpy as np
 
-from deeprl_hw2.objectives import mean_huber_loss
-from deeprl_hw2.utils import get_hard_target_model_updates, plot_loss, save_checkpoint
-from deeprl_hw2.policy import UniformRandomPolicy, LinearDecayGreedyEpsilonPolicy, GreedyPolicy
+from lib.objectives import mean_huber_loss
+from lib.utils import get_hard_target_model_updates, plot_loss, save_checkpoint
+from lib.policy import UniformRandomPolicy, LinearDecayGreedyEpsilonPolicy, GreedyPolicy
 
 
 class DQNAgent:
@@ -75,13 +75,14 @@ class DQNAgent:
         self.train_freq = train_freq
         self.batch_size = batch_size
         self.env = env
+        self.num_flow = self.env.num_flow
         self.check_freq = check_freq
         self.save_path = save_path
         self.loss_fn = mean_huber_loss
         self.optimizer = torch.optim.Adam(self.q_model.parameters(), lr=1e-4)
         self.target_network = copy.deepcopy(self.q_model)
         self.target_network.eval()
-        self.prepare_policy = UniformRandomPolicy(env.action_space.n)
+        self.prepare_policy = UniformRandomPolicy(2, self.num_flow)
         self.train_policy = LinearDecayGreedyEpsilonPolicy(1, 0.1, 1000000)
         self.evaluation_policy = GreedyPolicy()
         self.stage = "prepare"
@@ -113,7 +114,7 @@ class DQNAgent:
         else:
             state = self.preprocessor.process_state_for_network(state)
             q_values = self.q_model(state.to(self.device))
-            q_values = q_values.cpu().detach().numpy().flatten()
+            q_values = q_values.cpu().detach().numpy()
             if self.stage == "train":
                 return self.train_policy.select_action(q_values, True)
             else:
@@ -135,17 +136,30 @@ class DQNAgent:
         output. They can help you monitor how training is going.
         """
         batch = self.memory.sample(self.batch_size)
-        state, action, reward, next_state = self.preprocessor.game_processor.process_batch(batch)
+        state, action, reward, next_state = self.preprocessor.process_batch(batch)
+        # Stack the states and actions.
+        state = torch.flatten(state, start_dim=0, end_dim=0)
+        action = torch.flatten(action)
+        next_state = torch.flatten(next_state, start_dim=0, end_dim=0)
         state = state.to(self.device)
         # Compute the Q-values.
-        q_values = self.q_model(state)[torch.arange(self.batch_size), action.to(torch.int64)]
+        q_values = self.q_model(state)[torch.arange(self.batch_size * self.num_flow), action.to(torch.int64)]
+        # Restore the flow dimension.
+        q_values = torch.reshape(q_values, (self.batch_size, self.num_flow))
+        # Linear factorization by computing the sum of the q-values.
+        q_values = torch.sum(q_values, dim=1)
         next_state = next_state.to(self.device)
         # Compute the target values.
         if self.method == "dqn":
-            q_target = reward.to(self.device) + self.gamma * torch.amax(self.target_network(next_state), dim=1)
+            q_target = torch.amax(self.target_network(next_state), dim=1)
+            q_target = torch.reshape(q_target, (self.batch_size, self.num_flow))
+            q_target = torch.sum(q_target, dim=1)
+            q_target = reward.to(self.device) + self.gamma * q_target
         else:
             target_action = torch.argmax(self.q_model(next_state), dim=1)
-            target_q = self.target_network(next_state)[torch.arange(self.batch_size), target_action]
+            target_q = self.target_network(next_state)[torch.arange(self.batch_size * self.num_flow), target_action]
+            target_q = torch.reshape(target_q, (self.batch_size, self.num_flow))
+            target_q = torch.sum(target_q, dim=1)
             q_target = reward.to(self.device) + self.gamma * target_q
         loss = self.loss_fn(q_values, q_target)
         self.loss_history.append(loss.cpu().detach().numpy().item())
@@ -185,37 +199,39 @@ class DQNAgent:
         self.stage = "prepare"
         num_filled = 0
         while num_filled < self.num_burn_in:
-            frame = self.env.reset()
+            states = self.env.reset()
             self.preprocessor.reset()
             done = False
             num_step = 0
             while not done and (max_episode_length is None or num_step < max_episode_length):
-                frame = self.preprocessor.game_processor.process_state_for_memory(frame)
-                action = self.select_action(frame)
-                next_frame, reward, done, info = self.env.step(action)
-                self.memory.append(frame, action, reward)
+                states = self.preprocessor.process_state_for_memory(states)
+                actions = self.select_action(states)
+                next_states, reward, terminated, truncated = self.env.step(actions)
+                self.memory.append(states, actions, reward)
                 num_filled += 1
-                frame = next_frame
+                states = next_states
+                done = terminated or truncated
                 if num_filled == self.num_burn_in:
                     break
-            frame = self.preprocessor.game_processor.process_state_for_memory(frame)
-            self.memory.end_episode(frame, True)
+            states = self.preprocessor.process_state_for_memory(states)
+            self.memory.end_episode(states, True)
         # Start training.
         self.stage = "train"
         self.q_model.train()
         num_trained = 0
         while num_trained < num_iterations:
-            frame = self.env.reset()
+            states = self.env.reset()
             self.preprocessor.reset()
             done = False
             num_step = 0
             while not done and (max_episode_length is None or num_step < max_episode_length):
-                frame = self.preprocessor.game_processor.process_state_for_memory(frame)
-                action = self.select_action(frame)
-                next_frame, reward, done, info = self.env.step(action)
-                self.memory.append(frame, action, reward)
+                states = self.preprocessor.process_state_for_memory(states)
+                actions = self.select_action(states)
+                next_states, reward, terminated, truncated = self.env.step(actions)
+                self.memory.append(states, actions, reward)
                 num_trained += 1
-                frame = next_frame
+                states = next_states
+                done = terminated or truncated
                 # Update the main network:
                 if num_trained % self.train_freq == 0:
                     self.update_policy()
@@ -227,8 +243,8 @@ class DQNAgent:
                     save_checkpoint(self.q_model, self.save_path)
                 if num_trained == num_iterations:
                     break
-            frame = self.preprocessor.game_processor.process_state_for_memory(frame)
-            self.memory.end_episode(frame, True)
+            states = self.preprocessor.game_processor.process_state_for_memory(states)
+            self.memory.end_episode(states, True)
 
     def evaluate(self, num_episodes, max_episode_length=None):
         """Test your agent with a provided environment.
@@ -247,16 +263,17 @@ class DQNAgent:
         self.q_model.eval()
         reward_list = []
         for _ in range(num_episodes):
-            frame = self.env.reset()
+            states = self.env.reset()
             self.preprocessor.reset()
             done = False
             total_reward, num_step = 0, 0
             while not done and (max_episode_length is None or num_step < max_episode_length):
-                frame = self.preprocessor.game_processor.process_state_for_memory(frame)
-                action = self.select_action(frame)
-                next_frame, reward, done, info = self.env.step(action)
+                states = self.preprocessor.process_state_for_memory(states)
+                actions = self.select_action(states)
+                next_states, reward, terminated, truncated = self.env.step(actions)
                 total_reward += reward
                 num_step += 1
-                frame = next_frame
+                states = next_states
+                done = terminated or truncated
             reward_list.append(total_reward)
         return np.mean(reward_list), np.std(reward_list)

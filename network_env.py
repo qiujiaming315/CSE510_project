@@ -80,14 +80,16 @@ class NetworkEnv:
         return states, reward, terminate, exceed_target
 
     def reset(self):
+        self.arrival_pattern = copy.deepcopy(self.arrival_time)
         for token_bucket, reprofiler in zip(self.token_buckets, self.reprofilers):
             token_bucket.reset()
             reprofiler[0].reset()
             reprofiler[1].reset()
+        self.scheduler.reset()
         self.time = 0
         self.packet_count = [0] * len(self.arrival_pattern)
         self.departure_time = [[] for _ in range(len(self.arrival_pattern))]
-        states = []
+        states = [[] for _ in range(self.num_flow)]
         for state, f in zip(states, self.flow_profile):
             state.append(f[1] + 1)
             state.append(0)

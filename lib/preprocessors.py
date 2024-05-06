@@ -9,12 +9,6 @@ from lib.core import Preprocessor
 class NetworkStatePreprocessor(Preprocessor):
     """Processor for the network state."""
 
-    def process_state_for_memory(self, state):
-        return np.array(state, dtype=np.uint8)
-
-    def process_state_for_network(self, state):
-        return np.float32(state)
-
     def process_batch(self, samples):
         """The batches from replay memory will be uint8, convert to float32.
 

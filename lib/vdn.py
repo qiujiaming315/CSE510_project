@@ -82,7 +82,7 @@ class DQNAgent:
         self.optimizer = torch.optim.Adam(self.q_model.parameters(), lr=1e-4)
         self.target_network = copy.deepcopy(self.q_model)
         self.target_network.eval()
-        self.prepare_policy = UniformRandomPolicy(2, self.num_flow)
+        self.prepare_policy = UniformRandomPolicy(self.num_flow, 2)
         self.train_policy = LinearDecayGreedyEpsilonPolicy(1, 0.1, 1000000)
         self.evaluation_policy = GreedyPolicy()
         self.stage = "prepare"
@@ -112,8 +112,7 @@ class DQNAgent:
         if self.stage == "prepare":
             return self.prepare_policy.select_action()
         else:
-            state = self.preprocessor.process_state_for_network(state)
-            q_values = self.q_model(state.to(self.device))
+            q_values = self.q_model(torch.from_numpy(state).to(self.device))
             q_values = q_values.cpu().detach().numpy()
             if self.stage == "train":
                 return self.train_policy.select_action(q_values, True)
@@ -138,9 +137,9 @@ class DQNAgent:
         batch = self.memory.sample(self.batch_size)
         state, action, reward, next_state = self.preprocessor.process_batch(batch)
         # Stack the states and actions.
-        state = torch.flatten(state, start_dim=0, end_dim=0)
+        state = torch.flatten(state, start_dim=0, end_dim=1)
         action = torch.flatten(action)
-        next_state = torch.flatten(next_state, start_dim=0, end_dim=0)
+        next_state = torch.flatten(next_state, start_dim=0, end_dim=1)
         state = state.to(self.device)
         # Compute the Q-values.
         q_values = self.q_model(state)[torch.arange(self.batch_size * self.num_flow), action.to(torch.int64)]
@@ -204,7 +203,7 @@ class DQNAgent:
             done = False
             num_step = 0
             while not done and (max_episode_length is None or num_step < max_episode_length):
-                states = self.preprocessor.process_state_for_memory(states)
+                states = np.array(states, dtype=np.float32)
                 actions = self.select_action(states)
                 next_states, reward, terminated, truncated = self.env.step(actions)
                 self.memory.append(states, actions, reward)
@@ -213,8 +212,8 @@ class DQNAgent:
                 done = terminated or truncated
                 if num_filled == self.num_burn_in:
                     break
-            states = self.preprocessor.process_state_for_memory(states)
-            self.memory.end_episode(states, True)
+            states = np.array(states, dtype=np.float32)
+            self.memory.end_episode(states)
         # Start training.
         self.stage = "train"
         self.q_model.train()
@@ -225,7 +224,7 @@ class DQNAgent:
             done = False
             num_step = 0
             while not done and (max_episode_length is None or num_step < max_episode_length):
-                states = self.preprocessor.process_state_for_memory(states)
+                states = np.array(states, dtype=np.float32)
                 actions = self.select_action(states)
                 next_states, reward, terminated, truncated = self.env.step(actions)
                 self.memory.append(states, actions, reward)
@@ -239,12 +238,12 @@ class DQNAgent:
                 if num_trained % self.target_update_freq == 0:
                     get_hard_target_model_updates(self.target_network, self.q_model)
                 if num_trained % self.check_freq == 0:
-                    plot_loss(self.loss_history, self.save_path)
+                    # plot_loss(self.loss_history, self.save_path)
                     save_checkpoint(self.q_model, self.save_path)
                 if num_trained == num_iterations:
                     break
-            states = self.preprocessor.game_processor.process_state_for_memory(states)
-            self.memory.end_episode(states, True)
+            states = np.array(states, dtype=np.float32)
+            self.memory.end_episode(states)
 
     def evaluate(self, num_episodes, max_episode_length=None):
         """Test your agent with a provided environment.
@@ -268,7 +267,7 @@ class DQNAgent:
             done = False
             total_reward, num_step = 0, 0
             while not done and (max_episode_length is None or num_step < max_episode_length):
-                states = self.preprocessor.process_state_for_memory(states)
+                states = np.array(states, dtype=np.float32)
                 actions = self.select_action(states)
                 next_states, reward, terminated, truncated = self.env.step(actions)
                 total_reward += reward

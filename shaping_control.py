@@ -10,7 +10,7 @@ import torch
 import torch.nn as nn
 
 from network_env import NetworkEnv
-from lib.dqn import DQNAgent
+from lib.vdn import DQNAgent
 from lib.preprocessors import NetworkStatePreprocessor
 from lib.memory_replay import NetworkReplayMemory
 
@@ -78,14 +78,14 @@ def get_output_folder(parent_dir):
         if not os.path.isdir(os.path.join(parent_dir, folder_name)):
             continue
         try:
-            folder_name = int(folder_name.split('-run')[-1])
+            folder_name = int(folder_name.split('run')[-1])
             if folder_name > experiment_id:
                 experiment_id = folder_name
         except:
             pass
     experiment_id += 1
 
-    parent_dir = parent_dir + '-run{}'.format(experiment_id)
+    parent_dir = os.path.join(parent_dir, 'run{}'.format(experiment_id))
     return parent_dir
 
 
@@ -95,21 +95,21 @@ def main():
     parser.add_argument('--model', default='deep', type=str, choices=["linear", "deep"], help='Q network structure')
     parser.add_argument('--method', default='dqn', type=str, choices=["dqn", "double"], help='policy update method')
     parser.add_argument('--interval', default=3, type=int, help="time interval for the agents to take action")
-    parser.add_argument('--memory-size', default=1000000, type=int, help="Replay memory size")
+    parser.add_argument('--memory-size', default=10000, type=int, help="Replay memory size")
     parser.add_argument(
-        '--num-burn-in', default=50000, type=int, help="Number of states to collect before training VDN")
+        '--num-burn-in', default=5000, type=int, help="Number of states to collect before training VDN")
     parser.add_argument('--gamma', default=0.99, type=float, help="Discount factor")
     parser.add_argument('--batch-size', default=32, type=int, help="Batch size")
     parser.add_argument(
-        '--target-update-freq', default=10000, type=int, help="The frequency with which the target network is updated")
+        '--target-update-freq', default=1000, type=int, help="The frequency with which the target network is updated")
     parser.add_argument(
         '--train-freq', default=4, type=int, help="The frequency with which the main DQN is trained")
     parser.add_argument(
-        '--num-iterations', default=50000000, type=int, help="Number of samples/updates to perform in training")
+        '--num-iterations', default=50000, type=int, help="Number of samples/updates to perform in training")
     parser.add_argument(
         '--num-episodes', default=100, type=int, help="Number of episodes to perform in evaluation")
     parser.add_argument(
-        '--check-freq', default=1000, type=int, help="The frequency with which a checkpoint is added")
+        '--check-freq', default=500, type=int, help="The frequency with which a checkpoint is added")
     parser.add_argument(
         '-o', '--output', default='output', help='Directory to save data to')
     parser.add_argument('--seed', default=0, type=int, help='Random seed')
@@ -133,6 +133,7 @@ def main():
     replay_memory = NetworkReplayMemory(args.memory_size)
     agent = DQNAgent(q_model, args.method, preprocessor, replay_memory, args.gamma, args.target_update_freq,
                      args.num_burn_in, args.train_freq, args.batch_size, env, args.check_freq, args.output)
+    agent.fit(args.num_iterations)
     # # Load an exiting model alternatively.
     # agent.q_model.load_state_dict(
     #     torch.load("./atari-v0/local_deep_dqn_backup/checkpoint_500000.pth", map_location=torch.device('cpu')))

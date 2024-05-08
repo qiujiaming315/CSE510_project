@@ -1,9 +1,24 @@
 """Common functions you may find useful in your implementation."""
 
 import torch
-import numpy as np
 import os
-from matplotlib import pyplot as plt
+import torch.nn as nn
+
+
+class DQNetwork(nn.Module):
+
+    def __init__(self):
+        super().__init__()
+        self.fully1 = nn.Linear(3, 16)
+        self.fully2 = nn.Linear(16, 16)
+        self.fully3 = nn.Linear(16, 16)
+        self.fully4 = nn.Linear(16, 2)
+
+    def forward(self, output):
+        output = nn.functional.relu(self.fully1(output))
+        output = nn.functional.relu(self.fully2(output))
+        output = nn.functional.relu(self.fully3(output))
+        return self.fully4(output)
 
 
 def get_hard_target_model_updates(target, source):
@@ -31,17 +46,5 @@ def get_hard_target_model_updates(target, source):
     target.load_state_dict(source.state_dict())
 
 
-def plot_loss(loss_data, save_path, cycle=100):
-    # Plot the loss values, average every cycle loss values.
-    loss_data = np.array(loss_data)
-    loss_data = np.mean(loss_data.reshape(-1, cycle), axis=1)
-    x_data = (np.arange(len(loss_data)) + 1) * cycle
-    plt.plot(x_data, loss_data)
-    plt.ylabel('loss value')
-    plt.savefig(os.path.join(save_path, "loss.png"))
-    # plt.show()
-    plt.clf()
-
-
-def save_checkpoint(model, path):
-    torch.save(model.state_dict(), os.path.join(path, "checkpoint.pth"))
+def save_checkpoint(model, path, name="last"):
+    torch.save(model.state_dict(), os.path.join(path, f"checkpoint_{name}.pth"))

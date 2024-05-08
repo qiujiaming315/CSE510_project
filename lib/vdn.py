@@ -4,7 +4,7 @@ import torch
 import numpy as np
 
 from lib.objectives import mean_huber_loss
-from lib.utils import get_hard_target_model_updates, plot_loss, save_checkpoint
+from lib.utils import get_hard_target_model_updates, save_checkpoint
 from lib.policy import UniformRandomPolicy, LinearDecayGreedyEpsilonPolicy, GreedyPolicy
 
 
@@ -62,6 +62,7 @@ class DQNAgent:
                  batch_size,
                  env,
                  check_freq,
+                 num_episodes,
                  save_path):
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         print(f"Using {self.device} device")
@@ -77,6 +78,7 @@ class DQNAgent:
         self.env = env
         self.num_flow = self.env.num_flow
         self.check_freq = check_freq
+        self.num_episodes = num_episodes
         self.save_path = save_path
         self.loss_fn = mean_huber_loss
         self.optimizer = torch.optim.Adam(self.q_model.parameters(), lr=1e-4)
@@ -86,7 +88,8 @@ class DQNAgent:
         self.train_policy = LinearDecayGreedyEpsilonPolicy(1, 0.1, 1000000)
         self.evaluation_policy = GreedyPolicy()
         self.stage = "prepare"
-        self.loss_history = []
+        self.reward_mean_history = []
+        self.reward_std_history = []
 
     def select_action(self, state, **kwargs):
         """Select the action based on the current state.
@@ -161,7 +164,6 @@ class DQNAgent:
             target_q = torch.sum(target_q, dim=1)
             q_target = reward.to(self.device) + self.gamma * target_q
         loss = self.loss_fn(q_values, q_target)
-        self.loss_history.append(loss.cpu().detach().numpy().item())
         # Backpropagation
         self.optimizer.zero_grad()
         loss.backward()
@@ -239,13 +241,16 @@ class DQNAgent:
                     get_hard_target_model_updates(self.target_network, self.q_model)
                 if num_trained % self.check_freq == 0:
                     # plot_loss(self.loss_history, self.save_path)
+                    self.evaluate()
+                    self.stage = "train"
+                    self.q_model.train()
                     save_checkpoint(self.q_model, self.save_path)
                 if num_trained == num_iterations:
                     break
             states = np.array(states, dtype=np.float32)
             self.memory.end_episode(states)
 
-    def evaluate(self, num_episodes, max_episode_length=None):
+    def evaluate(self, max_episode_length=None):
         """Test your agent with a provided environment.
         
         You shouldn't update your network parameters here. Also if you
@@ -261,7 +266,7 @@ class DQNAgent:
         self.stage = "evaluation"
         self.q_model.eval()
         reward_list = []
-        for _ in range(num_episodes):
+        for _ in range(self.num_episodes):
             states = self.env.reset()
             self.preprocessor.reset()
             done = False
@@ -275,4 +280,9 @@ class DQNAgent:
                 states = next_states
                 done = terminated or truncated
             reward_list.append(total_reward)
-        return np.mean(reward_list), np.std(reward_list)
+        mean_reward = np.mean(reward_list)
+        if len(self.reward_mean_history) == 0 or mean_reward > np.amax(self.reward_mean_history):
+            save_checkpoint(self.q_model, self.save_path, "best")
+        self.reward_mean_history.append(np.mean(reward_list))
+        self.reward_std_history.append(np.std(reward_list))
+        return

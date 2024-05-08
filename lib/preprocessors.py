@@ -2,7 +2,6 @@
 import torch
 import numpy as np
 
-from lib import utils
 from lib.core import Preprocessor
 
 

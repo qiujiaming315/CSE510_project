@@ -5,19 +5,21 @@ import numpy as np
 class NetworkEnv:
     """A network environment for RL sampling similar to a openai.gym environment."""
 
-    def __init__(self, flow_profile, arrival_pattern, reprofiling_delay, interval, high_reward=10, low_reward=1,
-                 penalty=-100, tor=0.003):
+    def __init__(self, flow_profile, reprofiling_delay, interval, terminate_time=1000, sleep_prob=0.1, high_reward=1,
+                 low_reward=0.1, penalty=-10, tor=0.003):
         # TODO: add network profile later.
         flow_profile = np.array(flow_profile)
         self.flow_profile = flow_profile
-        self.arrival_pattern = arrival_pattern
+        self.num_flow = len(flow_profile)
         self.reprofiling_delay = reprofiling_delay
         self.interval = interval
+        self.terminate_time = terminate_time
+        self.sleep_prob = sleep_prob
         self.high_reward = high_reward
         self.low_reward = low_reward
         self.penalty = penalty
-        self.num_flow = len(flow_profile)
-        self.arrival_time = copy.deepcopy(arrival_pattern)
+        self.arrival_pattern = self.generate_arrival_pattern()
+        self.arrival_time = copy.deepcopy(self.arrival_pattern)
         bandwidth = np.sum([f[1] / d for f, d in zip(flow_profile, reprofiling_delay)])
         self.latency_target = (flow_profile[:, 2] + self.num_flow / bandwidth) * (1 + tor)
         # Configure the network components.
@@ -27,8 +29,8 @@ class NetworkEnv:
         self.scheduler = FIFOScheduler(bandwidth, interval)
         # Set the internal variables.
         self.time = 0
-        self.packet_count = [0] * len(arrival_pattern)
-        self.departure_time = [[] for _ in range(len(arrival_pattern))]
+        self.packet_count = [0] * len(self.arrival_pattern)
+        self.departure_time = [[] for _ in range(len(self.arrival_pattern))]
         return
 
     def reward_function(self, end_to_end_delay, flow_idx):
@@ -79,8 +81,24 @@ class NetworkEnv:
             reward = self.penalty
         return states, reward, terminate, exceed_target
 
+    def generate_arrival_pattern(self):
+        arrival_pattern = []
+        for flow_idx in range(self.num_flow):
+            flow_arrival_pattern = []
+            time = 0
+            burst_size = int(self.flow_profile[flow_idx, 1]) + 1
+            while time <= self.terminate_time:
+                flow_arrival_pattern.extend([time] * burst_size)
+                sleep = np.random.rand() <= self.sleep_prob
+                sleep_duration = np.random.randint(1, int(self.flow_profile[flow_idx, 1]) + 1) if sleep else 0
+                burst_size = sleep_duration + 1
+                time += burst_size * (1 / self.flow_profile[flow_idx, 0])
+            arrival_pattern.append(flow_arrival_pattern)
+        return arrival_pattern
+
     def reset(self):
-        self.arrival_pattern = copy.deepcopy(self.arrival_time)
+        self.arrival_pattern = self.generate_arrival_pattern()
+        self.arrival_time = copy.deepcopy(self.arrival_pattern)
         for token_bucket, reprofiler in zip(self.token_buckets, self.reprofilers):
             token_bucket.reset()
             reprofiler[0].reset()

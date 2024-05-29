@@ -21,10 +21,10 @@ class NetworkEnv:
         self.arrival_pattern = self.generate_arrival_pattern()
         self.arrival_time = copy.deepcopy(self.arrival_pattern)
         bandwidth = np.sum([f[1] / d for f, d in zip(flow_profile, reprofiling_delay)])
-        self.latency_target = (flow_profile[:, 2] + self.num_flow / bandwidth) * (1 + tor)
+        self.latency_target = (flow_profile[:, 2] + 1 / bandwidth) * (1 + tor)
         # Configure the network components.
-        self.token_buckets = [TokenBucket(f[0], f[1] + 1, interval) for f in flow_profile]
-        self.reprofilers = [[TokenBucket(f[0], f[1] + 1 - f[0] * d, interval), TokenBucket(f[1] / d, 1, interval)] for
+        self.token_buckets = [TokenBucket(f[0], f[1], interval) for f in flow_profile]
+        self.reprofilers = [[TokenBucket(f[0], f[1] - f[0] * d, interval), TokenBucket(f[1] / d, 0, interval)] for
                             f, d in zip(flow_profile, reprofiling_delay)]
         self.scheduler = FIFOScheduler(bandwidth, interval)
         # Set the internal variables.
@@ -85,14 +85,22 @@ class NetworkEnv:
         arrival_pattern = []
         for flow_idx in range(self.num_flow):
             flow_arrival_pattern = []
+            flow_token = self.flow_profile[flow_idx, 1]
             time = 0
-            burst_size = int(self.flow_profile[flow_idx, 1]) + 1
+            burst_size = int(flow_token)
+            residual_token = flow_token - burst_size
             while time <= self.terminate_time:
                 flow_arrival_pattern.extend([time] * burst_size)
                 sleep = np.random.rand() <= self.sleep_prob
-                sleep_duration = np.random.randint(1, int(self.flow_profile[flow_idx, 1]) + 1) if sleep else 0
-                burst_size = sleep_duration + 1
-                time += burst_size * (1 / self.flow_profile[flow_idx, 0])
+                if sleep and flow_token > 1:
+                    sleep_duration = np.random.rand() * (flow_token - 1) + 1
+                    backlog = sleep_duration + residual_token
+                else:
+                    sleep_duration = 1 - residual_token
+                    backlog = 1
+                burst_size = int(backlog)
+                residual_token = backlog - burst_size
+                time += sleep_duration * (1 / self.flow_profile[flow_idx, 0])
             arrival_pattern.append(flow_arrival_pattern)
         return arrival_pattern
 
@@ -109,7 +117,7 @@ class NetworkEnv:
         self.departure_time = [[] for _ in range(len(self.arrival_pattern))]
         states = [[] for _ in range(self.num_flow)]
         for state, f in zip(states, self.flow_profile):
-            state.append(f[1] + 1)
+            state.append(f[1])
             state.append(0)
             state.append(0)
         return states
@@ -179,7 +187,6 @@ class FIFOScheduler:
         self.backlog_flow = []
         self.time = 0
         self.depart = 0
-        self.residual_delay = -1
         return
 
     def forward(self, arrival):
@@ -198,18 +205,15 @@ class FIFOScheduler:
             # Examine the next packet.
             next_arrival = self.backlog.pop(0)
             next_flow = self.backlog_flow.pop(0)
-            delay = self.residual_delay if self.residual_delay != -1 else 1 / self.bandwidth
-            next_depart = max(next_arrival, self.depart) + delay
+            next_depart = max(next_arrival, self.depart) + 1 / self.bandwidth
             # Check whether the packet depart at this next time step.
             if next_depart >= self.time:
                 self.backlog.insert(0, next_arrival)
                 self.backlog_flow.insert(0, next_flow)
-                self.residual_delay = next_depart - self.time
                 break
             else:
                 self.depart = next_depart
                 departure[next_flow].append(next_depart)
-                self.residual_delay = -1
         return len(self.backlog), departure
 
     def reset(self):
@@ -217,5 +221,4 @@ class FIFOScheduler:
         self.backlog_flow = []
         self.time = 0
         self.depart = 0
-        self.residual_delay = -1
         return

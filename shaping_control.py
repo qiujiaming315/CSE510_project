@@ -73,7 +73,8 @@ def get_output_folder(parent_dir):
 
 def main():
     parser = argparse.ArgumentParser(description='Run VDN on multi-flow traffic shaping network')
-    parser.add_argument('input', type=str, help='Path to the input file')
+    parser.add_argument('flow_profile', type=str, help='Path to the flow profile file')
+    parser.add_argument('flow_path', type=str, help='Path to the flow path file')
     parser.add_argument('--model', default='deep', type=str, choices=["linear", "deep"], help='Q network structure')
     parser.add_argument('--method', default='dqn', type=str, choices=["dqn", "double"], help='policy update method')
     parser.add_argument('--interval', default=1, type=int, help="time interval for the agents to take action")
@@ -98,15 +99,16 @@ def main():
 
     args = parser.parse_args()
     # Load the input data.
-    with open(args.input, 'rb') as f:
-        input_data = pickle.load(f)
+    with open(args.flow_profile, 'rb') as f:
+        flow_profile_data = pickle.load(f)
+    flow_path_data = np.load(args.flow_path)
     # Create the output directory.
     args.output = get_output_folder(args.output)
     os.makedirs(args.output, exist_ok=True)
     # Set the random generator seed.
     np.random.seed(args.seed)
     # Establish the network environment.
-    env = NetworkEnv(input_data["flow_profile"], input_data["reprofiling_delay"], args.interval)
+    env = NetworkEnv(flow_profile_data["flow_profile"], flow_path_data, flow_profile_data["reprofiling_delay"], args.interval)
     # Create the q network.
     model_name = "linear q_network" if args.model == "linear" else "deep q_network"
     q_model = create_model(model_name)

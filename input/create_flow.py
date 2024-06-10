@@ -1,4 +1,3 @@
-import numpy as np
 import os
 import pickle
 from pathlib import Path
@@ -21,5 +20,5 @@ if __name__ == '__main__':
     flow_profile = [[5, 50, 5], [5, 50, 5], [5, 50, 5], [5, 50, 5], [5, 50, 5], [5, 50, 5], [5, 50, 5], [5, 50, 5],
                     [5, 50, 5], [5, 50, 5]]
     reprofiling_delay = [5, 5, 5, 5, 5, 5, 5, 5, 5, 5]
-    save_path = "./data/"
+    save_path = "./data/flow_profile/"
     save_file(save_path, flow_profile, reprofiling_delay)
